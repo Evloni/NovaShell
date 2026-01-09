@@ -22,6 +22,8 @@ int main(void) {
 
   banner();
 
+  linenoiseHistoryLoad("history.txt");
+
   while ((line = linenoise("nsh $ ")) != NULL) {
     // Handles White lines
     if (line[0] == '\0') {
@@ -155,9 +157,8 @@ int main(void) {
         printf("\n");
       }
     } else if (strcmp(line, "clear") == 0) {
-      printf("\033[2J\033[H");
+      linenoiseClearScreen();
       banner();
-      fflush(stdout);
     } else if (strcmp(line, "help") == 0) {
       printf("  exit                    Exit the shell\n");
       printf("  pwd, ls, dir            Print current working directory\n");
@@ -172,7 +173,12 @@ int main(void) {
       printf("\n");
     }
 
+    if (line[0] != '\0') {
+      linenoiseHistoryAdd(line);
+    }
+    linenoiseHistorySave("history.txt");
     free(line);
   }
+
   return EXIT_SUCCESS;
 }
