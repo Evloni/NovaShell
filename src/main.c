@@ -158,6 +158,18 @@ int main(void) {
       printf("\033[2J\033[H");
       banner();
       fflush(stdout);
+    } else if (strcmp(line, "help") == 0) {
+      printf("  exit                    Exit the shell\n");
+      printf("  pwd, ls, dir            Print current working directory\n");
+      printf("  cd <directory>          Change directory\n");
+      printf("  export                  List all environment variables\n");
+      printf("  export VAR=value       Set and export environment variable\n");
+      printf("  export VAR              Export existing variable\n");
+      printf(
+          "  echo [text]             Print text (supports $VAR expansion)\n");
+      printf("  clear                   Clear the screen\n");
+      printf("  help                    Show this help message\n");
+      printf("\n");
     }
 
     free(line);
