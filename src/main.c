@@ -12,6 +12,26 @@ void banner(void) {
   printf("Type `help` to show available commands!\n");
 }
 
+void completion(const char *buff, linenoiseCompletions *lc) {
+  const char *commands[] = {"exit", "cd",  "echo", "export", "clear",
+                            "help", "pwd", "ls",   "dir"};
+  int numCommands = sizeof(commands) / sizeof(commands[0]);
+
+  const char *p = buff;
+  while (*p == ' ') {
+    p++;
+  }
+
+  const char *space = strchr(p, ' ');
+  if (space == NULL) {
+    for (int i = 0; i < numCommands; i++) {
+      if (strncmp(p, commands[i], strlen(p)) == 0) {
+        linenoiseAddCompletion(lc, commands[i]);
+      }
+    }
+  }
+}
+
 int main(void) {
   char *line;
   char cwd_buff[PATH_MAX];
@@ -23,6 +43,7 @@ int main(void) {
   banner();
 
   linenoiseHistoryLoad("history.txt");
+  linenoiseSetCompletionCallback(completion);
 
   while ((line = linenoise("nsh $ ")) != NULL) {
     // Handles White lines
