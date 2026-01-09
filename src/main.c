@@ -7,6 +7,11 @@
 
 extern char **environ;
 
+void banner(void) {
+  printf("nsh — Nova Shell\n");
+  printf("Type `help` to show available commands!\n");
+}
+
 int main(void) {
   char *line;
   char cwd_buff[PATH_MAX];
@@ -15,8 +20,7 @@ int main(void) {
   char *var_name;
   char *var_value;
 
-  printf("nsh — Nova Shell\n");
-  printf("Type `help` to show available commands!\n");
+  banner();
 
   while ((line = linenoise("nsh $ ")) != NULL) {
     // Handles White lines
@@ -150,6 +154,10 @@ int main(void) {
         }
         printf("\n");
       }
+    } else if (strcmp(line, "clear") == 0) {
+      printf("\033[2J\033[H");
+      banner();
+      fflush(stdout);
     }
 
     free(line);
