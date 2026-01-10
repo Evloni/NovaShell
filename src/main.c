@@ -6,11 +6,36 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+/* Foreground / text colors */
+#define NSH_FG                                                                 \
+  "\033[38;2;230;230;230m" /* #E6E6E6 - white/light gray for regular output */
+#define NSH_DIM "\033[38;2;154;160;166m" /* #9AA0A6 - dimmed text */
+#define NSH_ACCENT                                                             \
+  "\033[38;2;100;200;255m" /* #64C8FF - brighter cyan for prompt/commands */
+
+/* Status / feedback */
+#define NSH_OK                                                                 \
+  "\033[38;2;100;255;100m" /* #64FF64 - bright green for success               \
+                            */
+#define NSH_WARN                                                               \
+  "\033[38;2;255;200;100m" /* #FFC864 - bright yellow/orange for warnings */
+#define NSH_ERR "\033[38;2;255;100;100m" /* #FF6464 - bright red for errors */
+#define NSH_INFO                                                               \
+  "\033[38;2;150;200;255m" /* #96C8FF - softer blue for info text */
+
+/* Reset / default */
+#define NSH_RESET "\033[0m"
+
 extern char **environ;
 
 void banner(void) {
-  printf("nsh — Nova Shell\n");
-  printf("Type `help` to show available commands!\n");
+  printf(NSH_ACCENT "nsh — Nova Shell\n" NSH_RESET);
+  printf(NSH_INFO "nsh"
+                  " "
+                  "v1.0.0\n" NSH_RESET);
+  printf(NSH_INFO "Type `help` to show available commands!\n" NSH_RESET);
+
+  printf("\n");
 }
 
 void completion(const char *buff, linenoiseCompletions *lc) {
@@ -96,6 +121,10 @@ int main(void) {
   linenoiseHistoryLoad("history.txt");
   linenoiseSetCompletionCallback(completion);
 
+  // Set prompt color before first prompt
+  printf(NSH_ACCENT);
+  fflush(stdout);
+
   while ((line = linenoise("nsh $ ")) != NULL) {
     // Handles White lines
     if (line[0] == '\0') {
@@ -118,20 +147,27 @@ int main(void) {
       exit(EXIT_SUCCESS);
     } else if (strcmp(argv[0], "pwd") == 0 || strcmp(argv[0], "dir") == 0) {
       getcwd(cwd_buff, sizeof(cwd_buff));
-      printf("%s\n", cwd_buff);
+      printf(NSH_FG "%s\n" NSH_RESET, cwd_buff);
+      fflush(stdout);
       handled = 1;
     } else if (strcmp(argv[0], "cd") == 0) {
       if (argc > 1) {
         if (chdir(argv[1]) != 0) {
-          perror("cd");
+          perror(NSH_ERR "cd" NSH_RESET);
+        } else {
+          printf(NSH_OK "Changed directory to: " NSH_FG "%s\n" NSH_RESET,
+                 argv[1]);
+          fflush(stdout);
         }
       } else {
         // cd with no arguments - go to home directory
         const char *home = getenv("HOME");
         if (home != NULL) {
           chdir(home);
+          printf(NSH_OK "Changed directory to: " NSH_FG "%s\n" NSH_RESET, home);
+          fflush(stdout);
         } else {
-          fprintf(stderr, "cd: HOME not set\n");
+          fprintf(stderr, NSH_ERR "cd: HOME not set\n" NSH_RESET);
         }
       }
       handled = 1;
@@ -140,8 +176,9 @@ int main(void) {
       if (argc == 1) {
         // List all environment variables
         for (char **env = environ; *env != NULL; env++) {
-          printf("declare -x %s\n", *env);
+          printf(NSH_FG "declare -x %s\n" NSH_RESET, *env);
         }
+        fflush(stdout);
       } else {
         var_name = argv[1];
         // Find '=' to separate variable name and value
@@ -153,7 +190,11 @@ int main(void) {
           var_value = equals_pos + 1;
 
           if (setenv(var_name, var_value, 1) != 0) {
-            perror("export");
+            perror(NSH_ERR "export" NSH_RESET);
+          } else {
+            printf(NSH_OK "Exported: " NSH_ACCENT "%s" NSH_FG "=%s\n" NSH_RESET,
+                   var_name, var_value);
+            fflush(stdout);
           }
 
           *equals_pos = '='; // Restore '=' for proper cleanup
@@ -162,17 +203,25 @@ int main(void) {
           // Check if variable exists
           if (getenv(var_name) != NULL) {
             // Variable exists, it's already in the environment
-            // No action needed as it's already exported
+            printf(NSH_OK "Exported: " NSH_ACCENT "%s\n" NSH_RESET, var_name);
+            fflush(stdout);
           } else {
             // Variable doesn't exist, set it to empty string
             if (setenv(var_name, "", 1) != 0) {
-              perror("export");
+              perror(NSH_ERR "export" NSH_RESET);
+            } else {
+              printf(NSH_OK "Exported: " NSH_ACCENT "%s" NSH_FG "=\n" NSH_RESET,
+                     var_name);
+              fflush(stdout);
             }
           }
         }
       }
       handled = 1;
     } else if (strcmp(argv[0], "echo") == 0) {
+      // Reset colors so echo output uses default terminal colors
+      printf(NSH_RESET);
+      fflush(stdout);
       // Handle echo command with variable expansion
       if (argc == 1) {
         // Just "echo" - print newline
@@ -252,29 +301,52 @@ int main(void) {
         }
         printf("\n");
       }
+      // Reset colors after echo output, then restore prompt color
+      printf(NSH_RESET NSH_ACCENT);
+      fflush(stdout);
       handled = 1;
     } else if (strcmp(argv[0], "clear") == 0) {
       linenoiseClearScreen();
       banner();
       handled = 1;
     } else if (strcmp(argv[0], "help") == 0) {
-      printf("  exit                    Exit the shell\n");
-      printf("  pwd, ls, dir            Print current working directory\n");
-      printf("  cd <directory>          Change directory\n");
-      printf("  export                  List all environment variables\n");
-      printf("  export VAR=value       Set and export environment variable\n");
-      printf("  export VAR              Export existing variable\n");
-      printf(
-          "  echo [text]             Print text (supports $VAR expansion)\n");
-      printf("  clear                   Clear the screen\n");
-      printf("  help                    Show this help message\n");
+      printf(NSH_ACCENT "  exit" NSH_RESET NSH_FG
+                        "                    Exit the shell\n" NSH_RESET);
+      printf(NSH_ACCENT "  pwd, ls, dir" NSH_RESET NSH_FG
+                        "            Print current working "
+                        "directory\n" NSH_RESET);
+      printf(NSH_ACCENT "  cd <directory>" NSH_RESET NSH_FG
+                        "          Change directory\n" NSH_RESET);
+      printf(NSH_ACCENT "  export" NSH_RESET NSH_FG
+                        "                  List all environment "
+                        "variables\n" NSH_RESET);
+      printf(NSH_ACCENT "  export VAR=value" NSH_RESET NSH_FG
+                        "       Set and export environment "
+                        "variable\n" NSH_RESET);
+      printf(NSH_ACCENT "  export VAR" NSH_RESET NSH_FG
+                        "              Export existing variable\n" NSH_RESET);
+      printf(NSH_ACCENT "  echo [text]" NSH_RESET NSH_FG
+                        "             Print text (supports "
+                        "$VAR expansion)\n" NSH_RESET);
+      printf(NSH_ACCENT "  clear" NSH_RESET NSH_FG
+                        "                   Clear the screen\n" NSH_RESET);
+      printf(NSH_ACCENT
+             "  help" NSH_RESET NSH_FG
+             "                    Show this help message\n" NSH_RESET);
       printf("\n");
+      fflush(stdout);
       handled = 1;
     }
 
     // If not a built-in command, try to execute as external program
     if (!handled) {
+      // Reset colors so external apps use default terminal colors
+      printf(NSH_RESET);
+      fflush(stdout);
       execute_external(argv);
+      // Reset again after external app in case it changed colors
+      printf(NSH_RESET);
+      fflush(stdout);
     }
 
     if (line[0] != '\0') {
@@ -282,6 +354,11 @@ int main(void) {
     }
     linenoiseHistorySave("history.txt");
     free(line);
+
+    // Reset to default colors, then set prompt color for next iteration
+    // This ensures external apps start with default colors
+    printf(NSH_RESET NSH_ACCENT);
+    fflush(stdout);
   }
 
   return EXIT_SUCCESS;
