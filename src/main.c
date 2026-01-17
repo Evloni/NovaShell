@@ -1,3 +1,11 @@
+/*
+ * NovaShell - GPLv3
+ * Copyright (C) 2026 Evloni
+ *
+ * This file is part of NovaShell.
+ * See LICENSE in the project root for full license information.
+ */
+
 #include "libs/linenoise.h"
 #include <linux/limits.h>
 #include <stdio.h>
