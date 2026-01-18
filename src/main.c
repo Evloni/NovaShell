@@ -6,111 +6,9 @@
  * See LICENSE in the project root for full license information.
  */
 
-#include "libs/linenoise.h"
-#include <linux/limits.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <sys/wait.h>
-#include <unistd.h>
-
-#include "libs/linenoise.h"
-
-/* Foreground / text colors */
-#define NSH_FG "\033[38;2;230;230;230m"     /* #E6E6E6 - white/light gray for regular output \
-                                             */
-#define NSH_DIM "\033[38;2;154;160;166m"    /* #9AA0A6 - dimmed text */
-#define NSH_ACCENT "\033[38;2;100;200;255m" /* #64C8FF - brighter cyan for prompt/commands */
-
-/* Status / feedback */
-#define NSH_OK "\033[38;2;100;255;100m"   /* #64FF64 - bright green for success \
-                                           */
-#define NSH_WARN "\033[38;2;255;200;100m" /* #FFC864 - bright yellow/orange for warnings */
-#define NSH_ERR "\033[38;2;255;100;100m"  /* #FF6464 - bright red for errors \
-                                           */
-#define NSH_INFO "\033[38;2;150;200;255m" /* #96C8FF - softer blue for info text */
-
-/* Reset / default */
-#define NSH_RESET "\033[0m"
+#include "libs/utils.h"
 
 extern char **environ;
-
-void banner(void) {
-    printf(NSH_ACCENT "nsh — Nova Shell\n" NSH_RESET);
-    printf(NSH_INFO "nsh"
-                    " "
-                    "v1.0.0\n" NSH_RESET);
-    printf(NSH_INFO "Type `help` to show available commands!\n" NSH_RESET);
-
-    printf("\n");
-}
-
-void completion(const char *buff, linenoiseCompletions *lc) {
-    const char *commands[] = {"exit", "cd", "echo", "export", "clear", "help", "pwd", "dir"};
-    int numCommands = sizeof(commands) / sizeof(commands[0]);
-
-    const char *p = buff;
-    while (*p == ' ') {
-        p++;
-    }
-
-    const char *space = strchr(p, ' ');
-    if (space == NULL) {
-        for (int i = 0; i < numCommands; i++) {
-            if (strncmp(p, commands[i], strlen(p)) == 0) {
-                linenoiseAddCompletion(lc, commands[i]);
-            }
-        }
-    }
-}
-
-// Parse command line into tokens (command + arguments)
-// Returns number of tokens, or -1 on error
-int parse_command(char *line, char **argv, int max_args) {
-    int argc = 0;
-    char *token;
-    char *saveptr;
-
-    // Skip leading whitespace
-    while (*line == ' ' || *line == '\t') {
-        line++;
-    }
-
-    // If empty line, return 0
-    if (*line == '\0') {
-        return 0;
-    }
-
-    // Tokenize the line
-    token = strtok_r(line, " \t", &saveptr);
-    while (token != NULL && argc < max_args - 1) {
-        argv[argc++] = token;
-        token = strtok_r(NULL, " \t", &saveptr);
-    }
-    argv[argc] = NULL; // Null-terminate the array
-
-    return argc;
-}
-
-// Execute external program
-void execute_external(char **argv) {
-    pid_t pid = fork();
-
-    if (pid == 0) {
-        // Child process: execute the command
-        execvp(argv[0], argv);
-        // If execvp returns, there was an error
-        perror(argv[0]);
-        exit(EXIT_FAILURE);
-    } else if (pid < 0) {
-        // Fork failed
-        perror("fork");
-    } else {
-        // Parent process: wait for child to complete
-        int status;
-        waitpid(pid, &status, 0);
-    }
-}
 
 int main(void) {
     char *line;
@@ -151,7 +49,7 @@ int main(void) {
         if (strcmp(argv[0], "exit") == 0) {
             free(line);
             exit(EXIT_SUCCESS);
-        } else if (strcmp(argv[0], "pwd") == 0 || strcmp(argv[0], "dir") == 0) {
+        } else if (strcmp(argv[0], "pwd") == 0) {
             getcwd(cwd_buff, sizeof(cwd_buff));
             printf(NSH_FG "%s\n" NSH_RESET, cwd_buff);
             fflush(stdout);
@@ -317,14 +215,14 @@ int main(void) {
         } else if (strcmp(argv[0], "help") == 0) {
             printf(NSH_ACCENT "  exit" NSH_RESET NSH_FG
                               "                    Exit the shell\n" NSH_RESET);
-            printf(NSH_ACCENT "  pwd, ls, dir" NSH_RESET NSH_FG "            Print current working "
+            printf(NSH_ACCENT "  pwd" NSH_RESET NSH_FG "                     Print current working "
                               "directory\n" NSH_RESET);
             printf(NSH_ACCENT "  cd <directory>" NSH_RESET NSH_FG
                               "          Change directory\n" NSH_RESET);
             printf(NSH_ACCENT "  export" NSH_RESET NSH_FG "                  List all environment "
                               "variables\n" NSH_RESET);
             printf(NSH_ACCENT "  export VAR=value" NSH_RESET NSH_FG
-                              "       Set and export environment "
+                              "        Set and export environment "
                               "variable\n" NSH_RESET);
             printf(NSH_ACCENT "  export VAR" NSH_RESET NSH_FG
                               "              Export existing variable\n" NSH_RESET);

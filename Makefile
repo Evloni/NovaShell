@@ -1,5 +1,5 @@
 compile:
-	gcc -Wall -Wextra src/main.c src/linenoise.c -o nsh -Isrc/libs
+	gcc -Wall -Wextra src/main.c src/utils.c src/linenoise.c -o nsh -Isrc/libs
 
 clean:
 	rm -f nsh
