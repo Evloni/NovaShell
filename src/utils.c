@@ -7,6 +7,11 @@
  */
 
 #include "libs/utils.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <unistd.h>
 
 void banner(void) {
     printf(NSH_ACCENT "nsh — Nova Shell\n" NSH_RESET);
@@ -81,4 +86,43 @@ void execute_external(char **argv) {
         int status;
         waitpid(pid, &status, 0);
     }
+}
+
+// Execute scripts with bash
+int execute_script(const char *script_path, char **args) {
+    pid_t pid = fork();
+
+    if (pid == 0) {
+        int arg_count = 0;
+        if (args) {
+            while (args[arg_count]) {
+                arg_count++;
+            }
+        }
+
+        char *bash_args[arg_count + 3];
+        bash_args[0] = "bash";
+        bash_args[1] = (char *)script_path;
+
+        for (int i = 0; i < arg_count; i++) {
+            bash_args[i + 2] = args[i];
+        }
+        bash_args[arg_count + 2] = NULL;
+
+        execvp("bash", bash_args);
+        // If execvp fails
+        execv("/bin/bash", bash_args);
+        perror("exec failed");
+        exit(EXIT_FAILURE);
+    } else if (pid < 0) {
+        perror("fork");
+        return -1;
+    } else {
+        int status;
+        waitpid(pid, &status, 0);
+        if (WIFEXITED(status)) {
+            return WEXITSTATUS(status);
+        }
+    }
+    return -1;
 }
