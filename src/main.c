@@ -8,20 +8,50 @@
 
 #include "libs/utils.h"
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 
 extern char **environ;
 
 int main(int argc_main, char **argv_main) {
-    char *line;
     char cwd_buff[PATH_MAX];
+    char prompt_buff[PATH_MAX * 2];
+    char *line;
     char *equals_pos;
     char *var_name;
     char *var_value;
     char *argv[64]; // Max 64 arguments
+    char *prompt = cwd_buff;  //NSH_ACCENT"nsh $ " NSH_RESET;
+    const char *home  = getenv("HOME");
+
     int argc;
     int handled = 0; // Flag to track if command was handled as built-in
+
+    if (getcwd(cwd_buff, sizeof(cwd_buff)) == NULL) {
+        perror("getcwd");
+    }
+
+    if (home != NULL && home[0] != '\0') {
+        size_t n = strlen(home);
+        if (strncmp(cwd_buff, home, n) == 0 && (cwd_buff[n] == '\0' || cwd_buff[n] == '/')) {
+            if (cwd_buff[n] == '\0') {
+                snprintf(prompt_buff, sizeof(prompt_buff),
+                         "\001" NSH_ACCENT "\002" "~: nsh $" "\001" NSH_RESET "\002" " ");
+            } else {
+                snprintf(prompt_buff, sizeof(prompt_buff),
+                         "\001" NSH_ACCENT "\002" "~%s: nsh $" "\001" NSH_RESET "\002" " ",
+                         cwd_buff + n);
+            }
+        } else {
+            snprintf(prompt_buff, sizeof(prompt_buff),
+                     "\001" NSH_ACCENT "\002" "%s: nsh $" "\001" NSH_RESET "\002" " ", cwd_buff);
+        }
+    } else {
+        snprintf(prompt_buff, sizeof(prompt_buff),
+                 "\001" NSH_ACCENT "\002" "%s: nsh $" "\001" NSH_RESET "\002" " ", cwd_buff);
+    }
+    prompt = prompt_buff;
 
     // If script provided as command-line argument, execute it and exit
     if (argc_main > 1) {
@@ -59,20 +89,35 @@ int main(int argc_main, char **argv_main) {
     linenoiseHistoryLoad("history.txt");
     linenoiseSetCompletionCallback(completion);
 
-    // Set prompt color before first prompt
-    printf(NSH_ACCENT);
-    fflush(stdout);
 
-    while ((line = linenoise("nsh $ ")) != NULL) {
-            // Handles White lines
-            if (line[0] == '\0') {
-                free(line);
-                continue;
-            }
+    while (1) {
+        line = linenoise(prompt);
+        if (line == NULL) {
+            printf(NSH_RESET);
+            break;
+        }
+
+
+
+        // Handles White lines
+        if (line[0] == '\0') {
+            free(line);
+            continue;
+        }
+
+        /* parse_command() uses strtok_r and mutates the buffer; keep a copy for
+         * history so the full line (with args) is saved. */
+        char *history_line = strdup(line);
+        if (history_line == NULL) {
+            perror("strdup");
+            free(line);
+            continue;
+        }
 
             // Parse the command line
             argc = parse_command(line, argv, 64);
             if (argc == 0) {
+                free(history_line);
                 free(line);
                 continue;
             }
@@ -81,10 +126,15 @@ int main(int argc_main, char **argv_main) {
 
             // handles buildt-in commands
             if (strcmp(argv[0], "exit") == 0) {
+                if (history_line[0] != '\0') {
+                    linenoiseHistoryAdd(history_line);
+                    linenoiseHistorySave("history.txt");
+                }
+                free(history_line);
                 free(line);
                 exit(EXIT_SUCCESS);
             } else if (strcmp(argv[0], "pwd") == 0) {
-                getcwd(cwd_buff, sizeof(cwd_buff));
+
                 printf(NSH_FG "%s\n" NSH_RESET, cwd_buff);
                 fflush(stdout);
                 handled = 1;
@@ -306,10 +356,11 @@ int main(int argc_main, char **argv_main) {
                 fflush(stdout);
             }
 
-            if (line[0] != '\0') {
-                linenoiseHistoryAdd(line);
+            if (history_line[0] != '\0') {
+                linenoiseHistoryAdd(history_line);
             }
             linenoiseHistorySave("history.txt");
+            free(history_line);
             free(line);
 
             // Reset to default colors, then set prompt color for next iteration

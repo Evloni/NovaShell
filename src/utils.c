@@ -14,16 +14,28 @@
 #include <unistd.h>
 
 void banner(void) {
-    printf(NSH_ACCENT "nsh — Nova Shell\n" NSH_RESET);
-    printf(NSH_INFO "nsh "
-                    "v1.0.0\n" NSH_RESET);
-    printf(NSH_INFO "Type `help` to show available commands!\n" NSH_RESET);
-
+    printf(NSH_FG);
+    fflush(stdout);
+    printf("####################\n");
+    printf("# nsh — Nova Shell #\n");
+    printf("#     v1.0.0       #\n");
+    printf("####################\n");
+    printf("Type `help` to show available commands!\n");
     printf("\n");
 }
 
 void completion(const char *buff, linenoiseCompletions *lc) {
-    const char *commands[] = {"exit", "cd", "echo", "export", "clear", "help", "pwd", "dir"};
+    /* Built-ins handled in main.c (keep in sync with strcmp argv[0] branches). */
+    const char *commands[] = {
+        "cd",
+        "clear",
+        "echo",
+        "exit",
+        "export",
+        "help",
+        "pwd",
+        "ls"
+    };
     int numCommands = sizeof(commands) / sizeof(commands[0]);
 
     const char *p = buff;

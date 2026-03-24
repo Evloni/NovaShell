@@ -863,6 +863,98 @@ static void abFree(struct abuf *ab) {
     free(ab->b);
 }
 
+/*
+ * NovaShell: Local modifications below (prompt \001/\002 non-printing regions).
+ * Upstream linenoise remains under the BSD 2-Clause license; the copyright
+ * notice and disclaimer at the top of this file are unchanged. See also
+ * THIRD_PARTY_LICENSES.txt in the project root.
+ */
+
+/* Return prompt display width, ignoring non-printing \001...\002 regions. */
+static size_t promptDisplayWidth(const char *prompt, size_t plen) {
+    size_t width = 0;
+    size_t i = 0;
+    int in_hidden = 0;
+
+    while (i < plen) {
+        unsigned char c = (unsigned char)prompt[i];
+        if (c == '\001') {
+            in_hidden = 1;
+            i++;
+            continue;
+        }
+        if (c == '\002') {
+            in_hidden = 0;
+            i++;
+            continue;
+        }
+        if (in_hidden) {
+            i++;
+            continue;
+        }
+        size_t clen = utf8NextCharLen(prompt, i, plen);
+        width += utf8SingleCharWidth(prompt + i, clen);
+        i += clen;
+    }
+    return width;
+}
+
+/* Append prompt bytes to the output buffer, dropping \001/\002 markers. */
+static void abAppendPrompt(struct abuf *ab, const char *prompt, size_t plen) {
+    size_t i = 0;
+    size_t seg_start = 0;
+
+    while (i < plen) {
+        unsigned char c = (unsigned char)prompt[i];
+        if (c == '\001' || c == '\002') {
+            if (i > seg_start)
+                abAppend(ab, prompt + seg_start, (int)(i - seg_start));
+            i++;
+            seg_start = i;
+            continue;
+        }
+        i++;
+    }
+    if (i > seg_start)
+        abAppend(ab, prompt + seg_start, (int)(i - seg_start));
+}
+
+/* Write prompt to fd, dropping \001/\002 markers from output. */
+static int writePromptFiltered(int fd, const char *prompt, size_t plen) {
+    size_t i = 0, seg_start = 0;
+
+    while (i < plen) {
+        unsigned char c = (unsigned char)prompt[i];
+        if (c == '\001' || c == '\002') {
+            if (i > seg_start) {
+                size_t off = 0;
+                size_t seg_len = i - seg_start;
+                while (off < seg_len) {
+                    ssize_t n = write(fd, prompt + seg_start + off, seg_len - off);
+                    if (n <= 0)
+                        return -1;
+                    off += (size_t)n;
+                }
+            }
+            i++;
+            seg_start = i;
+            continue;
+        }
+        i++;
+    }
+    if (i > seg_start) {
+        size_t off = 0;
+        size_t seg_len = i - seg_start;
+        while (off < seg_len) {
+            ssize_t n = write(fd, prompt + seg_start + off, seg_len - off);
+            if (n <= 0)
+                return -1;
+            off += (size_t)n;
+        }
+    }
+    return 0;
+}
+
 /* Helper of refreshSingleLine() and refreshMultiLine() to show hints
  * to the right of the prompt. Now uses display widths for proper UTF-8. */
 void refreshShowHints(struct abuf *ab, struct linenoiseState *l, int pwidth) {
@@ -917,7 +1009,7 @@ void refreshShowHints(struct abuf *ab, struct linenoiseState *l, int pwidth) {
  * for cursor positioning and horizontal scrolling. */
 static void refreshSingleLine(struct linenoiseState *l, int flags) {
     char seq[64];
-    size_t pwidth = utf8StrWidth(l->prompt, l->plen); /* Prompt display width */
+    size_t pwidth = promptDisplayWidth(l->prompt, l->plen); /* Prompt display width */
     int fd = l->ofd;
     char *buf = l->buf;
     size_t len = l->len; /* Byte length of buffer to display */
@@ -958,7 +1050,7 @@ static void refreshSingleLine(struct linenoiseState *l, int flags) {
 
     if (flags & REFRESH_WRITE) {
         /* Write the prompt and the current buffer content */
-        abAppend(&ab, l->prompt, l->plen);
+        abAppendPrompt(&ab, l->prompt, l->plen);
         if (maskmode == 1) {
             /* In mask mode, we output one '*' per UTF-8 character, not byte */
             size_t i = 0;
@@ -999,7 +1091,7 @@ static void refreshSingleLine(struct linenoiseState *l, int flags) {
  * This function is UTF-8 aware and uses display widths for positioning. */
 static void refreshMultiLine(struct linenoiseState *l, int flags) {
     char seq[64];
-    size_t pwidth = utf8StrWidth(l->prompt, l->plen);       /* Prompt display width */
+    size_t pwidth = promptDisplayWidth(l->prompt, l->plen); /* Prompt display width */
     size_t bufwidth = utf8StrWidth(l->buf, l->len);         /* Buffer display width */
     size_t poswidth = utf8StrWidth(l->buf, l->pos);         /* Cursor display width */
     int rows = (pwidth + bufwidth + l->cols - 1) / l->cols; /* rows used by current buf. */
@@ -1040,7 +1132,7 @@ static void refreshMultiLine(struct linenoiseState *l, int flags) {
 
     if (flags & REFRESH_WRITE) {
         /* Write the prompt and the current buffer content */
-        abAppend(&ab, l->prompt, l->plen);
+        abAppendPrompt(&ab, l->prompt, l->plen);
         if (maskmode == 1) {
             /* In mask mode, output one '*' per UTF-8 character, not byte */
             size_t i = 0;
@@ -1144,7 +1236,7 @@ int linenoiseEditInsert(struct linenoiseState *l, const char *c, size_t clen) {
             l->len += clen;
             l->buf[l->len] = '\0';
             if ((!mlmode &&
-                 utf8StrWidth(l->prompt, l->plen) + utf8StrWidth(l->buf, l->len) < l->cols &&
+                 promptDisplayWidth(l->prompt, l->plen) + utf8StrWidth(l->buf, l->len) < l->cols &&
                  !hintsCallback)) {
                 /* Avoid a full update of the line in the trivial case:
                  * single-width char, no hints, fits in one line. */
@@ -1332,7 +1424,7 @@ int linenoiseEditStart(struct linenoiseState *l, int stdin_fd, int stdout_fd, ch
      * initially is just an empty string. */
     linenoiseHistoryAdd("");
 
-    if (write(l->ofd, prompt, l->plen) == -1)
+    if (writePromptFiltered(l->ofd, prompt, l->plen) == -1)
         return -1;
     return 0;
 }
@@ -1669,8 +1761,8 @@ char *linenoise(const char *prompt) {
     } else if (isUnsupportedTerm()) {
         size_t len;
 
-        printf("%s", prompt);
-        fflush(stdout);
+        if (writePromptFiltered(STDOUT_FILENO, prompt, strlen(prompt)) == -1)
+            return NULL;
         if (fgets(buf, LINENOISE_MAX_LINE, stdin) == NULL)
             return NULL;
         len = strlen(buf);
