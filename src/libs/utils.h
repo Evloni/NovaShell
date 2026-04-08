@@ -37,3 +37,4 @@ void completion(const char *buff, linenoiseCompletions *lc);
 int parse_command(char *line, char **argv, int max_args);
 void execute_external(char **argv);
 int execute_script(const char *script_path, char **args);
+char *expand_variable(const char *token);

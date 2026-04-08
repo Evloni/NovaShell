@@ -2,13 +2,17 @@
  * NovaShell - GPLv3
  * Copyright (C) 2026 Evloni
  *
+    -- optional for icon support
+ *
  * This file is part of NovaShell.
  * See LICENSE in the project root for full license information.
  */
 
 #include "libs/utils.h"
+#include "libs/linenoise.h"
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -18,7 +22,7 @@ void banner(void) {
     fflush(stdout);
     printf("####################\n");
     printf("# nsh — Nova Shell #\n");
-    printf("#     v1.0.0       #\n");
+    printf("#     v1.1.0       #\n");
     printf("####################\n");
     printf("Type `help` to show available commands!\n");
     printf("\n");
@@ -34,8 +38,7 @@ void completion(const char *buff, linenoiseCompletions *lc) {
         "export",
         "help",
         "pwd",
-        "ls"
-    };
+        "ls"};
     int numCommands = sizeof(commands) / sizeof(commands[0]);
 
     const char *p = buff;
@@ -80,6 +83,20 @@ int parse_command(char *line, char **argv, int max_args) {
 
     return argc;
 }
+
+char *expand_variable(const char *token) {
+    if (token[0] == '$') {
+        const char *varName = token + 1;
+        char *value = getenv(varName);
+        if (value != NULL) {
+            return strdup(value);
+        } else {
+            return strdup("");
+        }
+    }
+    return strdup(token);
+}
+
 // Execute external program
 void execute_external(char **argv) {
     pid_t pid = fork();
