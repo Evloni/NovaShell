@@ -15,6 +15,44 @@
 
 extern char **environ;
 
+static void build_prompt(char *prompt_buff, size_t prompt_size, char *cwd_buff, size_t cwd_size) {
+    const char *home = getenv("HOME");
+
+    if (getcwd(cwd_buff, cwd_size) == NULL) {
+        perror("getcwd");
+        snprintf(prompt_buff, prompt_size, "nsh $ ");
+        return;
+    }
+
+    if (home != NULL && home[0] != '\0') {
+        size_t n = strlen(home);
+        if (strncmp(cwd_buff, home, n) == 0 && (cwd_buff[n] == '\0' || cwd_buff[n] == '/')) {
+            if (cwd_buff[n] == '\0') {
+                snprintf(prompt_buff, prompt_size,
+                         "\001" NSH_ACCENT "\002"
+                         "~: nsh $"
+                         "\001" NSH_RESET "\002"
+                         " ");
+            } else {
+                snprintf(prompt_buff, prompt_size,
+                         "\001" NSH_ACCENT "\002"
+                         "~%s: nsh $"
+                         "\001" NSH_RESET "\002"
+                         " ",
+                         cwd_buff + n);
+            }
+            return;
+        }
+    }
+
+    snprintf(prompt_buff, prompt_size,
+             "\001" NSH_ACCENT "\002"
+             "%s: nsh $"
+             "\001" NSH_RESET "\002"
+             " ",
+             cwd_buff);
+}
+
 int main(int argc_main, char **argv_main) {
     char cwd_buff[PATH_MAX];
     char prompt_buff[PATH_MAX * 2];
@@ -22,51 +60,11 @@ int main(int argc_main, char **argv_main) {
     char *equals_pos;
     char *var_name;
     char *var_value;
-    char *argv[64];          // Max 64 arguments
-    char *prompt = cwd_buff; // NSH_ACCENT"nsh $ " NSH_RESET;
-    const char *home = getenv("HOME");
+    char *argv[64];      // Max 64 arguments
+    char *prompt = NULL; // Prompt is rebuilt each loop iteration.
 
     int argc;
     int handled = 0; // Flag to track if command was handled as built-in
-
-    if (getcwd(cwd_buff, sizeof(cwd_buff)) == NULL) {
-        perror("getcwd");
-    }
-
-    if (home != NULL && home[0] != '\0') {
-        size_t n = strlen(home);
-        if (strncmp(cwd_buff, home, n) == 0 && (cwd_buff[n] == '\0' || cwd_buff[n] == '/')) {
-            if (cwd_buff[n] == '\0') {
-                snprintf(prompt_buff, sizeof(prompt_buff),
-                         "\001" NSH_ACCENT "\002"
-                         "~: nsh $"
-                         "\001" NSH_RESET "\002"
-                         " ");
-            } else {
-                snprintf(prompt_buff, sizeof(prompt_buff),
-                         "\001" NSH_ACCENT "\002"
-                         "~%s: nsh $"
-                         "\001" NSH_RESET "\002"
-                         " ",
-                         cwd_buff + n);
-            }
-        } else {
-            snprintf(prompt_buff, sizeof(prompt_buff),
-                     "\001" NSH_ACCENT "\002"
-                     "%s: nsh $"
-                     "\001" NSH_RESET "\002"
-                     " ",
-                     cwd_buff);
-        }
-    } else {
-        snprintf(prompt_buff, sizeof(prompt_buff),
-                 "\001" NSH_ACCENT "\002"
-                 "%s: nsh $"
-                 "\001" NSH_RESET "\002"
-                 " ",
-                 cwd_buff);
-    }
-    prompt = prompt_buff;
 
     // If script provided as command-line argument, execute it and exit
     if (argc_main > 1) {
@@ -116,6 +114,8 @@ int main(int argc_main, char **argv_main) {
     linenoiseSetCompletionCallback(completion);
 
     while (1) {
+        build_prompt(prompt_buff, sizeof(prompt_buff), cwd_buff, sizeof(cwd_buff));
+        prompt = prompt_buff;
         line = linenoise(prompt);
         if (line == NULL) {
             printf(NSH_RESET);

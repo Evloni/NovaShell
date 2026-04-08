@@ -22,7 +22,7 @@ void banner(void) {
     fflush(stdout);
     printf("####################\n");
     printf("# nsh — Nova Shell #\n");
-    printf("#     v1.1.0       #\n");
+    printf("#     v1.1.1       #\n");
     printf("####################\n");
     printf("Type `help` to show available commands!\n");
     printf("\n");
