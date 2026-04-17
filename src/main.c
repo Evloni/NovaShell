@@ -53,41 +53,63 @@ static void build_prompt(char *prompt_buff, size_t prompt_size, char *cwd_buff, 
              cwd_buff);
 }
 
+/* Build path to persistent linenoise history (TMPDIR or /tmp). Returns 0 on success. */
+static int build_history_path(char *buf, size_t buflen) {
+    const char *tmpdir = getenv("TMPDIR");
+    if (tmpdir == NULL || tmpdir[0] == '\0') {
+        tmpdir = "/tmp";
+    }
+    size_t n = strlen(tmpdir);
+    const char *sep = (n > 0 && tmpdir[n - 1] == '/') ? "" : "/";
+    if (snprintf(buf, buflen, "%s%shistory.txt", tmpdir, sep) >= (int)buflen) {
+        return -1;
+    }
+    return 0;
+}
+
+static int file_starts_with_shebang(const char *path) {
+    FILE *file = fopen(path, "r");
+    if (file == NULL) {
+        return 0;
+    }
+    char first_line[3];
+    int ok = fgets(first_line, sizeof(first_line), file) != NULL && strncmp(first_line, "#!", 2) == 0;
+    fclose(file);
+    return ok;
+}
+
+/* True if path should be executed via execute_script (.sh or shebang file). */
+static int path_looks_like_script(const char *path) {
+    char *ext = strrchr(path, '.');
+    if (ext != NULL && strcmp(ext, ".sh") == 0) {
+        return 1;
+    }
+    if (access(path, F_OK) == 0 && file_starts_with_shebang(path)) {
+        return 1;
+    }
+    return 0;
+}
+
 int main(int argc_main, char **argv_main) {
     char cwd_buff[PATH_MAX];
     char prompt_buff[PATH_MAX * 2];
+    char history_path[PATH_MAX];
+    char *argv[64];
     char *line;
     char *equals_pos;
     char *var_name;
     char *var_value;
-    char *argv[64];      // Max 64 arguments
-    char *prompt = NULL; // Prompt is rebuilt each loop iteration.
+    char *prompt = NULL;
 
     int argc;
-    int handled = 0; // Flag to track if command was handled as built-in
+    int handled;
 
-    // If script provided as command-line argument, execute it and exit
+    /* Non-interactive: first argv is program or script to run */
     if (argc_main > 1) {
         char *script_path = argv_main[1];
         char **script_args = (argc_main > 2) ? &argv_main[2] : NULL;
 
-        // Check if it's a script
-        int is_script = 0;
-        char *ext = strrchr(script_path, '.');
-        if (ext && strcmp(ext, ".sh") == 0) {
-            is_script = 1;
-        } else if (access(script_path, F_OK) == 0) {
-            FILE *file = fopen(script_path, "r");
-            if (file) {
-                char first_line[3];
-                if (fgets(first_line, sizeof(first_line), file) && strncmp(first_line, "#!", 2) == 0) {
-                    is_script = 1;
-                }
-                fclose(file);
-            }
-        }
-
-        if (is_script) {
+        if (path_looks_like_script(script_path)) {
             int exit_status = execute_script(script_path, script_args);
             exit(exit_status);
         } else {
@@ -110,7 +132,9 @@ int main(int argc_main, char **argv_main) {
 
     banner();
 
-    linenoiseHistoryLoad("history.txt");
+    if (build_history_path(history_path, sizeof(history_path)) == 0) {
+        linenoiseHistoryLoad(history_path);
+    }
     linenoiseSetCompletionCallback(completion);
 
     while (1) {
@@ -122,7 +146,6 @@ int main(int argc_main, char **argv_main) {
             break;
         }
 
-        // Handles White lines
         if (line[0] == '\0') {
             free(line);
             continue;
@@ -147,17 +170,17 @@ int main(int argc_main, char **argv_main) {
 
         handled = 0;
 
-        // handles buildt-in commands
         if (strcmp(argv[0], "exit") == 0) {
             if (history_line[0] != '\0') {
                 linenoiseHistoryAdd(history_line);
-                linenoiseHistorySave("history.txt");
+            }
+            if (build_history_path(history_path, sizeof(history_path)) == 0) {
+                linenoiseHistorySave(history_path);
             }
             free(history_line);
             free(line);
             exit(EXIT_SUCCESS);
         } else if (strcmp(argv[0], "pwd") == 0) {
-
             printf(NSH_FG "%s\n" NSH_RESET, cwd_buff);
             fflush(stdout);
             handled = 1;
@@ -246,7 +269,7 @@ int main(int argc_main, char **argv_main) {
                         if (*current == '$') {
                             char *var_start = current + 1;
                             char var_name_buf[256];
-                            char *var_value;
+                            char *expansion;
                             char *var_end;
 
                             // Handle ${VAR} format
@@ -291,10 +314,9 @@ int main(int argc_main, char **argv_main) {
                                 current = var_end;
                             }
 
-                            // Get and print variable value
-                            var_value = getenv(var_name_buf);
-                            if (var_value != NULL) {
-                                printf("%s", var_value);
+                            expansion = getenv(var_name_buf);
+                            if (expansion != NULL) {
+                                printf("%s", expansion);
                             }
                             // If variable doesn't exist, print nothing (standard
                             // shell behavior)
@@ -344,7 +366,6 @@ int main(int argc_main, char **argv_main) {
             handled = 1;
         }
 
-        // If not a built-in command
         if (!handled) {
             char *expanded_argv[64];
             int expanded_argc = 0;
@@ -354,22 +375,7 @@ int main(int argc_main, char **argv_main) {
             }
             expanded_argv[expanded_argc] = NULL;
 
-            int is_script = 0;
-            // Check for .sh extension first
-            char *ext = strrchr(expanded_argv[0], '.');
-            if (ext && strcmp(ext, ".sh") == 0) {
-                is_script = 1;
-            } else if (access(expanded_argv[0], F_OK) == 0) {
-                // Check for shebang in any existing file
-                FILE *file = fopen(expanded_argv[0], "r");
-                if (file) {
-                    char first_line[3];
-                    if (fgets(first_line, sizeof(first_line), file) && strncmp(first_line, "#!", 2) == 0) {
-                        is_script = 1;
-                    }
-                    fclose(file);
-                }
-            }
+            int is_script = path_looks_like_script(expanded_argv[0]);
             printf(NSH_RESET);
             fflush(stdout);
 
@@ -394,7 +400,11 @@ int main(int argc_main, char **argv_main) {
         if (history_line[0] != '\0') {
             linenoiseHistoryAdd(history_line);
         }
-        linenoiseHistorySave("history.txt");
+
+        if (build_history_path(history_path, sizeof(history_path)) == 0) {
+            linenoiseHistorySave(history_path);
+        }
+
         free(history_line);
         free(line);
 

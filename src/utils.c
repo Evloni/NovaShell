@@ -2,20 +2,113 @@
  * NovaShell - GPLv3
  * Copyright (C) 2026 Evloni
  *
-    -- optional for icon support
- *
  * This file is part of NovaShell.
  * See LICENSE in the project root for full license information.
  */
 
 #include "libs/utils.h"
 #include "libs/linenoise.h"
+#include <dirent.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
+
+#define NSH_COMP_LINE_MAX 4096
+
+static void nsh_expand_tilde(const char *in, char *out, size_t outsz) {
+    const char *home = getenv("HOME");
+    if (home != NULL && in[0] == '~' && (in[1] == '/' || in[1] == '\0')) {
+        if (in[1] == '\0') {
+            snprintf(out, outsz, "%s", home);
+        } else {
+            snprintf(out, outsz, "%s%s", home, in + 1);
+        }
+    } else {
+        snprintf(out, outsz, "%s", in);
+    }
+}
+
+/* exp_partial: path fragment with tilde already expanded. */
+static int nsh_filepath_split(const char *exp_partial, char *dirbuf, size_t dirsz, char *pfxbuf, size_t pfxsz) {
+    const char *slash = strrchr(exp_partial, '/');
+
+    if (slash == NULL) {
+        snprintf(dirbuf, dirsz, ".");
+        snprintf(pfxbuf, pfxsz, "%s", exp_partial);
+        return 0;
+    }
+    if (slash == exp_partial) {
+        snprintf(dirbuf, dirsz, "/");
+        snprintf(pfxbuf, pfxsz, "%s", slash + 1);
+        return 0;
+    }
+    size_t dlen = (size_t)(slash - exp_partial);
+    if (dlen + 1 >= dirsz) {
+        return -1;
+    }
+    memcpy(dirbuf, exp_partial, dlen);
+    dirbuf[dlen] = '\0';
+    snprintf(pfxbuf, pfxsz, "%s", slash + 1);
+    return 0;
+}
+
+static void nsh_join_path(char *out, size_t outsz, const char *dir, const char *name) {
+    if (strcmp(dir, "/") == 0) {
+        snprintf(out, outsz, "/%s", name);
+    } else {
+        snprintf(out, outsz, "%s/%s", dir, name);
+    }
+}
+
+static void nsh_add_path_completions(const char *buff, size_t prefix_len, const char *dir_scan, const char *namepfx,
+                                     linenoiseCompletions *lc) {
+    DIR *dp = opendir(dir_scan);
+    if (dp == NULL) {
+        return;
+    }
+
+    size_t pfxlen = strlen(namepfx);
+    struct dirent *dent;
+
+    while ((dent = readdir(dp)) != NULL) {
+        if (strcmp(dent->d_name, ".") == 0 || strcmp(dent->d_name, "..") == 0) {
+            continue;
+        }
+        if (pfxlen > 0) {
+            if (strncmp(dent->d_name, namepfx, pfxlen) != 0) {
+                continue;
+            }
+        } else if (dent->d_name[0] == '.') {
+            continue;
+        }
+
+        char full[PATH_MAX];
+        nsh_join_path(full, sizeof(full), dir_scan, dent->d_name);
+
+        struct stat st;
+        int is_dir = (stat(full, &st) == 0 && S_ISDIR(st.st_mode));
+
+        /* +2 so "%s/" cannot truncate when full uses almost all of PATH_MAX */
+        char tail[PATH_MAX + 2];
+        if (is_dir) {
+            snprintf(tail, sizeof(tail), "%s/", full);
+        } else {
+            snprintf(tail, sizeof(tail), "%s", full);
+        }
+
+        char line[NSH_COMP_LINE_MAX];
+        int n = snprintf(line, sizeof(line), "%.*s%s", (int)prefix_len, buff, tail);
+        if (n < 0 || (size_t)n >= sizeof(line)) {
+            continue;
+        }
+        linenoiseAddCompletion(lc, line);
+    }
+    closedir(dp);
+}
 
 void banner(void) {
     printf(NSH_FG);
@@ -38,8 +131,9 @@ void completion(const char *buff, linenoiseCompletions *lc) {
         "export",
         "help",
         "pwd",
-        "ls"};
-    int numCommands = sizeof(commands) / sizeof(commands[0]);
+        "ls",
+    };
+    int numCommands = (int)(sizeof(commands) / sizeof(commands[0]));
 
     const char *p = buff;
     while (*p == ' ') {
@@ -53,7 +147,35 @@ void completion(const char *buff, linenoiseCompletions *lc) {
                 linenoiseAddCompletion(lc, commands[i]);
             }
         }
+        return;
     }
+
+    const char *last_sp = strrchr(buff, ' ');
+    if (last_sp == NULL) {
+        return;
+    }
+
+    const char *partial = last_sp + 1;
+    while (*partial == ' ') {
+        partial++;
+    }
+
+    size_t prefix_len = (size_t)(partial - buff);
+    if (partial[0] == '\0') {
+        nsh_add_path_completions(buff, prefix_len, ".", "", lc);
+        return;
+    }
+
+    char expanded[PATH_MAX];
+    nsh_expand_tilde(partial, expanded, sizeof(expanded));
+
+    char dirbuf[PATH_MAX];
+    char pfxbuf[PATH_MAX];
+    if (nsh_filepath_split(expanded, dirbuf, sizeof(dirbuf), pfxbuf, sizeof(pfxbuf)) != 0) {
+        return;
+    }
+
+    nsh_add_path_completions(buff, prefix_len, dirbuf, pfxbuf, lc);
 }
 
 // Parse command line into tokens (command + arguments)
