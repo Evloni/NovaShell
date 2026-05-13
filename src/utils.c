@@ -206,6 +206,77 @@ int parse_command(char *line, char **argv, int max_args) {
     return argc;
 }
 
+int parsePipe(char *input, char **left, char **right) {
+    char *pipePos = strchr(input, '|');
+    if (!pipePos) {
+        return 0;
+    }
+    *pipePos = '\0';
+    pipePos++;
+    while (*pipePos == ' ') {
+        pipePos++;
+    }
+    *left = input;
+    *right = pipePos;
+
+    return 1;
+}
+
+void executePipe(char **args1, char **args2) {
+    int pipefd[2];
+    if (pipe(pipefd) < 0) {
+        perror("pipe");
+        return;
+    }
+
+    pid_t p1 = fork();
+    if (p1 < 0) {
+        perror("fork");
+        close(pipefd[0]);
+        close(pipefd[1]);
+        return;
+    }
+    if (p1 == 0) {
+        if (dup2(pipefd[1], STDOUT_FILENO) < 0) {
+            perror("dup2");
+            _exit(1);
+        }
+        close(pipefd[0]);
+        close(pipefd[1]);
+
+        execvp(args1[0], args1);
+        perror("Pipe cmd1 failed");
+        _exit(127);
+    }
+
+    pid_t p2 = fork();
+    if (p2 < 0) {
+        perror("fork");
+        close(pipefd[0]);
+        close(pipefd[1]);
+        waitpid(p1, NULL, 0);
+        return;
+    }
+    if (p2 == 0) {
+        if (dup2(pipefd[0], STDIN_FILENO) < 0) {
+            perror("dup2");
+            _exit(1);
+        }
+        close(pipefd[0]);
+        close(pipefd[1]);
+
+        execvp(args2[0], args2);
+        perror("Pipe cmd2 failed");
+        _exit(127);
+    }
+
+    close(pipefd[0]);
+    close(pipefd[1]);
+
+    waitpid(p1, NULL, 0);
+    waitpid(p2, NULL, 0);
+}
+
 char *expand_variable(const char *token) {
     if (token[0] == '$') {
         const char *varName = token + 1;
@@ -276,4 +347,36 @@ int execute_script(const char *script_path, char **args) {
         }
     }
     return -1;
+}
+void parseInput(char *input, char **args) {
+    int argc = 0;
+    const int max_args = 63;
+
+    while (*input != '\0' && argc < max_args) {
+        while (*input == ' ' || *input == '\t') {
+            input++;
+        }
+        if (*input == '\0') {
+            break;
+        }
+        if (*input == '"') {
+            input++;
+            args[argc++] = input;
+            while (*input != '\0' && *input != '"') {
+                input++;
+            }
+            if (*input == '"') {
+                *input++ = '\0';
+            }
+        } else {
+            args[argc++] = input;
+            while (*input != '\0' && *input != ' ' && *input != '\t') {
+                input++;
+            }
+            if (*input != '\0') {
+                *input++ = '\0';
+            }
+        }
+    }
+    args[argc] = NULL;
 }

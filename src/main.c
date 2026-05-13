@@ -94,12 +94,13 @@ int main(int argc_main, char **argv_main) {
     char cwd_buff[PATH_MAX];
     char prompt_buff[PATH_MAX * 2];
     char history_path[PATH_MAX];
-    char *argv[64];
+    char *argv[64], *arg2[64];
     char *line;
     char *equals_pos;
     char *var_name;
     char *var_value;
     char *prompt = NULL;
+    char *left, *right;
 
     int argc;
     int handled;
@@ -151,12 +152,32 @@ int main(int argc_main, char **argv_main) {
             continue;
         }
 
-        /* parse_command() uses strtok_r and mutates the buffer; keep a copy for
-         * history so the full line (with args) is saved. */
+        /* parsePipe() NULs the buffer at '|'; strdup first so history keeps the full line. */
         char *history_line = strdup(line);
         if (history_line == NULL) {
             perror("strdup");
             free(line);
+            continue;
+        }
+
+        if (parsePipe(line, &left, &right)) {
+            parseInput(left, argv);
+            parseInput(right, arg2);
+            if (argv[0] == NULL || arg2[0] == NULL) {
+                fprintf(stderr, NSH_ERR "nsh: incomplete pipeline\n" NSH_RESET);
+            } else {
+                executePipe(argv, arg2);
+            }
+            if (history_line[0] != '\0') {
+                linenoiseHistoryAdd(history_line);
+            }
+            if (build_history_path(history_path, sizeof(history_path)) == 0) {
+                linenoiseHistorySave(history_path);
+            }
+            free(history_line);
+            free(line);
+            printf(NSH_RESET NSH_ACCENT);
+            fflush(stdout);
             continue;
         }
 

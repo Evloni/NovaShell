@@ -35,6 +35,9 @@
 void banner(void);
 void completion(const char *buff, linenoiseCompletions *lc);
 int parse_command(char *line, char **argv, int max_args);
+int parsePipe(char *input, char **left, char **right);
+void executePipe(char **args1, char **args2);
 void execute_external(char **argv);
 int execute_script(const char *script_path, char **args);
 char *expand_variable(const char *token);
+void parseInput(char *input, char **args);
